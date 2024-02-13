@@ -4,6 +4,7 @@ import (
 	"flag"
 	"html/template"
 	"net/http"
+	"os"
 	"strconv"
 	"sync"
 
@@ -47,6 +48,10 @@ var flagRunAddr string
 func parseFlags() {
     flag.StringVar(&flagRunAddr, "a", ":8080", "address and port to run server")
     flag.Parse()
+
+	if envRunAddr := os.Getenv("ADDRESS"); envRunAddr != "" {
+        flagRunAddr = envRunAddr
+    }
 } 
 
 func (db *MemStorage) AddCounterMetric(name string, value int64) {

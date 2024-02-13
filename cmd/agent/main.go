@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"math/rand"
 	"net/http"
+	"os"
 	"reflect"
 	"runtime"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -49,6 +51,17 @@ func parseFlags() {
 	flag.IntVar(&reportInterval, "r", 10, "The frequency of sending metrics to the server (default is 10 seconds)")
 	flag.IntVar(&pollInterval, "p", 2, "The polling frequency of metrics from the runtime package (default is 2 seconds)")
 	flag.Parse()
+
+	if envRunAddr := os.Getenv("ADDRESS"); envRunAddr != "" {
+        serverAddress = envRunAddr
+    }
+	if envReportInterval := os.Getenv("REPORT_INTERVAL"); envReportInterval != "" {
+        reportInterval, _ = strconv.Atoi(envReportInterval)
+    }
+	if envPollInterval := os.Getenv("POLL_INTERVAL"); envPollInterval != "" {
+        pollInterval, _ = strconv.Atoi(envPollInterval)
+    }
+
 }
 
 func gatherMetrics() {
