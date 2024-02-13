@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"math/rand"
 	"net/http"
@@ -11,9 +12,7 @@ import (
 )
 
 const (
-	pollInterval   = 2 * time.Second
-	reportInterval = 10 * time.Second
-	serverAddress  = "http://localhost:8080"
+	localhst = "http://localhost:"
 )
 
 type gauge float64
@@ -28,6 +27,9 @@ var (
 	randomValue = gauge(rnd.Float64())
 
 	wg     sync.WaitGroup
+	randomValueMux sync.RWMutex
+	dbMux sync.RWMutex
+
 	stopCh = make(chan struct{})
 
 	db = struct {
@@ -37,7 +39,17 @@ var (
 		gauge:   make(GaugeMetric),
 		counter: make(CounterMetric),
 	}
+	pollInterval   int
+	reportInterval int
+	serverAddress  string
 )
+
+func parseFlags() {
+	flag.StringVar(&serverAddress, "a", "8080", "address and port to run server")
+	flag.IntVar(&reportInterval, "r", 10, "The frequency of sending metrics to the server (default is 10 seconds)")
+	flag.IntVar(&pollInterval, "p", 2, "The polling frequency of metrics from the runtime package (default is 2 seconds)")
+	flag.Parse()
+}
 
 func gatherMetrics() {
 	defer wg.Done()
@@ -47,6 +59,7 @@ func gatherMetrics() {
 		case <-stopCh:
 			return
 		default:
+			dbMux.Lock()
 			db.gauge["Alloc"] = gauge(mem.Alloc)
 			db.gauge["BuckHashSys"] = gauge(mem.BuckHashSys)
 			db.gauge["Frees"] = gauge(mem.Frees)
@@ -76,20 +89,24 @@ func gatherMetrics() {
 			db.gauge["TotalAlloc"] = gauge(mem.TotalAlloc)
 
 			db.counter["PollCount"] += counter(1)
+			randomValueMux.RLock()
 			db.gauge["RandomValue"] = randomValue
+			randomValueMux.RUnlock()
+			dbMux.Unlock()
 			updateRandomValue()
-			time.Sleep(pollInterval)
+			time.Sleep(time.Duration(pollInterval) * time.Second)
 		}
 	}
 }
 
 func sendMetrics() {
-	
+
 	for {
 		select {
 		case <-stopCh:
 			return
 		default:
+			dbMux.RLock()
 			t := reflect.ValueOf(db)
 
 			for i := 0; i < t.NumField(); i++ {
@@ -101,7 +118,7 @@ func sendMetrics() {
 						metricName := iter.Key().String()
 						metricValue := iter.Value()
 
-						url := fmt.Sprintf("%s/update/%s/%s/%v", serverAddress, t.Type().Field(i).Name, metricName, metricValue)
+						url := fmt.Sprintf("%s%s/update/%s/%s/%v", localhst, serverAddress, t.Type().Field(i).Name, metricName, metricValue)
 						resp, err := http.Post(url, "text/plain", http.NoBody)
 						if err != nil {
 							fmt.Printf("Ошибка при отправке метрики: %s\n", err.Error())
@@ -115,19 +132,22 @@ func sendMetrics() {
 					}
 				}
 			}
-			time.Sleep(reportInterval)
+			dbMux.RUnlock()
+			time.Sleep(time.Duration(reportInterval) * time.Second)
 		}
 	}
 }
 
 func updateRandomValue() {
+	randomValueMux.Lock()
 	randomValue = gauge(rnd.Float64())
+	randomValueMux.Unlock()
 }
 
 func main() {
 
 	wg.Add(2)
-
+	parseFlags()
 	go gatherMetrics()
 	go sendMetrics()
 
