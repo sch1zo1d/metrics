@@ -1,4 +1,4 @@
-package main
+package agent
 
 import (
 	"flag"
@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"sync"
 	"time"
+
+	// . "github.com/sch1zo1d/metrics/cmd/server"
 )
 
 const (
@@ -20,8 +22,8 @@ const (
 type gauge float64
 type counter int64
 
-type GaugeMetric map[string]gauge
-type CounterMetric map[string]counter
+type gaugeMetric map[string]gauge
+type counterMetric map[string]counter
 
 var (
 	randSrc     = rand.NewSource(time.Now().UnixNano())
@@ -35,11 +37,11 @@ var (
 	stopCh = make(chan struct{})
 
 	db = struct {
-		gauge   GaugeMetric
-		counter CounterMetric
+		gauge   gaugeMetric
+		counter counterMetric
 	}{
-		gauge:   make(GaugeMetric),
-		counter: make(CounterMetric),
+		gauge:   make(gaugeMetric),
+		counter: make(counterMetric),
 	}
 	pollInterval   int
 	reportInterval int
