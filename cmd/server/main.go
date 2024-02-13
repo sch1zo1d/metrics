@@ -132,7 +132,7 @@ func HandlerReadMetric (c *gin.Context) {
 		value, ok = counterMetrics[name]
 	default: ok = false
 	}
-	if ok == false {c.AbortWithStatus(http.StatusNotFound); return}
+	if !ok {c.AbortWithStatus(http.StatusNotFound); return}
 	c.String(http.StatusOK, "%v", value)
 }
 func HandlerWriteMetric(c *gin.Context) {
