@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"html/template"
 	"net/http"
 	"strconv"
@@ -42,6 +43,11 @@ var (
 	}
 )
 
+var flagRunAddr string
+func parseFlags() {
+    flag.StringVar(&flagRunAddr, "a", ":8080", "address and port to run server")
+    flag.Parse()
+} 
 
 func (db *MemStorage) AddCounterMetric(name string, value int64) {
 	db.mu.Lock()
@@ -152,5 +158,7 @@ func main() {
 	router.GET("/update/:type/:name", HandlerReadMetric)
 	router.GET("/", HandlerListMetrics)
 
-	if err := router.Run(":8080"); err != nil {panic(err)}
+	parseFlags()
+	if err := router.Run(flagRunAddr); err != nil {panic(err)}
 }
+
