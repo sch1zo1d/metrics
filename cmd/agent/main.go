@@ -101,7 +101,7 @@ func sendMetrics() {
 						metricValue := iter.Value()
 
 						url := fmt.Sprintf("%s/update/%s/%s/%v", serverAddress, t.Type().Field(i).Name, metricName, metricValue)
-						resp, err := http.Post(url, "text/plain", nil)
+						resp, err := http.Post(url, "text/plain", http.NoBody)
 						if err != nil {
 							fmt.Printf("Ошибка при отправке метрики: %s\n", err.Error())
 							continue
