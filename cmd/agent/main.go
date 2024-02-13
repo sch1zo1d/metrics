@@ -84,6 +84,7 @@ func gatherMetrics() {
 }
 
 func sendMetrics() {
+	
 	for {
 		select {
 		case <-stopCh:

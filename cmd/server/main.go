@@ -1,19 +1,20 @@
 package main
 
 import (
-	"log"
+	"html/template"
 	"net/http"
 	"strconv"
 	"sync"
 
-	"github.com/gorilla/mux"
+	"github.com/gin-gonic/gin"
 )
 
 type MemStorage struct {
-	Data struct{
-		gauge GaugeMetric
+	Data struct {
+		gauge   GaugeMetric
 		counter CounterMetric
 	}
+	mu sync.Mutex
 }
 
 type gauge float64
@@ -23,56 +24,133 @@ type GaugeMetric map[string]gauge
 type CounterMetric map[string]counter
 
 type Storage interface {
-	Add()
-	Delete()
+	AddCounterMetric(name string, value int64)
+	AddGaugeMetric(name string, value float64)
+	GetMetrics() (CounterMetric, GaugeMetric)
 }
 
 var (
-	mu sync.Mutex
-	db = MemStorage{
-    Data: struct {
-        gauge   GaugeMetric
-        counter CounterMetric
-    }{
-        gauge:   make(GaugeMetric),
-        counter: make(CounterMetric),
-    },
-}
 
+	db Storage = &MemStorage{
+		Data: struct {
+			gauge   GaugeMetric
+			counter CounterMetric
+		}{
+			gauge:   make(GaugeMetric),
+			counter: make(CounterMetric),
+		},
+	}
 )
 
-func HandlerMetric(w http.ResponseWriter, req *http.Request){
-	// || req.Header.Get("content-type") != "text/plain"
-	if req.Method != http.MethodPost{
-		w.WriteHeader(http.StatusMethodNotAllowed)
-        return
+
+func (db *MemStorage) AddCounterMetric(name string, value int64) {
+	db.mu.Lock()
+	db.Data.counter[name] += counter(value)
+	db.mu.Unlock()
+}
+
+func (db *MemStorage) AddGaugeMetric(name string, value float64) {
+	db.mu.Lock()
+	db.Data.gauge[name] = gauge(value)
+	db.mu.Unlock()
+}
+
+func (db *MemStorage) GetMetrics() (CounterMetric, GaugeMetric) {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	return db.Data.counter, db.Data.gauge
+}
+
+
+func HandlerListMetrics(c *gin.Context) {
+	counterMetrics, gaugeMetrics := db.GetMetrics()
+
+	data := struct {
+		CounterMetrics map[string]counter
+		GaugeMetrics   map[string]gauge
+	}{
+		CounterMetrics: counterMetrics,
+		GaugeMetrics:   gaugeMetrics,
 	}
-	vars := mux.Vars(req)
-	
-	mu.Lock()
-	badReq := 0
-	if vars["name"] == "" {w.WriteHeader(http.StatusNotFound); return}
-	switch vars["type"] {
-	case "counter": 
-		if val, err := strconv.ParseInt(vars["value"], 10, 64); err==nil {
-			db.Data.counter[vars["name"]] += counter(val)
-		} else {badReq = 1}
+	tmpl, err := template.New("metrics").Parse(`
+		<!DOCTYPE html>
+		<html>
+		<head>
+			<title>Metric List</title>
+		</head>
+		<body>
+			<h1>Metric List</h1>
+			<h2>Counter Metrics</h2>
+			<ul>
+				{{range $name, $value := .CounterMetrics}}
+					<li>{{$name}}: {{$value}}</li>
+				{{end}}
+			</ul>
+			<h2>Gauge Metrics</h2>
+			<ul>
+				{{range $name, $value := .GaugeMetrics}}
+					<li>{{$name}}: {{$value}}</li>
+				{{end}}
+			</ul>
+		</body>
+		</html>
+	`)
+	if err != nil {
+		c.AbortWithStatus(http.StatusInternalServerError)
+		return
+	}
+
+	c.Header("Content-Type", "text/html")
+	if err := tmpl.Execute(c.Writer, data); err != nil {
+		c.AbortWithStatus(http.StatusInternalServerError)
+		return
+	}
+}
+func HandlerReadMetric (c *gin.Context) {
+	name := c.Param("name")
+	metricType := c.Param("type")
+	var value interface{}
+	if name == "" {c.AbortWithStatus(http.StatusNotFound); return}
+	switch metricType{
 	case "gauge": 
-		if val, err := strconv.ParseFloat(vars["value"], 64); err==nil {
-			db.Data.gauge[vars["name"]] = gauge(val)
+		_, gaugeMetrics := db.GetMetrics()
+		value = gaugeMetrics[name]
+	case "counter": 
+		counterMetrics, _ := db.GetMetrics()
+		value = counterMetrics[name]
+	default: c.AbortWithStatus(http.StatusNotFound); return
+	}
+	c.String(http.StatusOK, "%v", value)
+}
+func HandlerWriteMetric(c *gin.Context) {
+	name := c.Param("name")
+	value := c.Param("value")
+	metricType := c.Param("type")
+	badReq := 0
+
+	if name == "" {c.AbortWithStatus(http.StatusNotFound); return}
+	switch metricType {
+	case "counter":
+		if val, err := strconv.ParseInt(value, 10, 64); err == nil {
+			db.AddCounterMetric(name, val)
+		} else {badReq = 1}
+	case "gauge":
+		if val, err := strconv.ParseFloat(value, 64); err == nil {
+			db.AddGaugeMetric(name, val)
 		} else {badReq = 1}
 	default: badReq = 1
 	}
-	if badReq == 1 {w.WriteHeader(http.StatusBadRequest); return}
-	mu.Unlock()
-	w.Header().Set("content-type", "text/plain")
-	w.Header().Set("charset", "utf-8")
-	w.WriteHeader(http.StatusOK)
+	if badReq == 1 {c.AbortWithStatus(http.StatusBadRequest); return}
+
+	c.Status(http.StatusOK)
 }
 
 func main() {
-	// init
-	mux := mux.NewRouter()
-	mux.HandleFunc("/update/{type}/{name}/{value}", HandlerMetric)
-    log.Fatal(http.ListenAndServe(":8080", mux))
+	router := gin.Default()
+
+	router.POST("/update/:type/:name/:value", HandlerWriteMetric)
+	router.GET("/update/:type/:name", HandlerReadMetric)
+	router.GET("/", HandlerListMetrics)
+
+	if err := router.Run(":8080"); err != nil {panic(err)}
 }
