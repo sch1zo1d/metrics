@@ -42,7 +42,8 @@ var (
 )
 
 func HandlerMetric(w http.ResponseWriter, req *http.Request){
-	if req.Method != http.MethodPost || req.Header.Get("content-type") != "text/plain"{
+	// || req.Header.Get("content-type") != "text/plain"
+	if req.Method != http.MethodPost{
 		w.WriteHeader(http.StatusMethodNotAllowed)
         return
 	}
