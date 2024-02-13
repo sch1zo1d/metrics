@@ -122,15 +122,17 @@ func HandlerReadMetric (c *gin.Context) {
 	metricType := c.Param("type")
 	var value interface{}
 	if name == "" {c.AbortWithStatus(http.StatusNotFound); return}
+	var ok bool
 	switch metricType{
 	case "gauge": 
 		_, gaugeMetrics := db.GetMetrics()
-		value = gaugeMetrics[name]
+		value, ok = gaugeMetrics[name]
 	case "counter": 
 		counterMetrics, _ := db.GetMetrics()
-		value = counterMetrics[name]
-	default: c.AbortWithStatus(http.StatusNotFound); return
+		value, ok = counterMetrics[name]
+	default: ok = false
 	}
+	if ok == false {c.AbortWithStatus(http.StatusNotFound); return}
 	c.String(http.StatusOK, "%v", value)
 }
 func HandlerWriteMetric(c *gin.Context) {
