@@ -160,7 +160,7 @@ func main() {
 	router := gin.Default()
 
 	router.POST("/update/:type/:name/:value", HandlerWriteMetric)
-	router.GET("/update/:type/:name", HandlerReadMetric)
+	router.GET("/value/:type/:name", HandlerReadMetric)
 	router.GET("/", HandlerListMetrics)
 
 	parseFlags()
