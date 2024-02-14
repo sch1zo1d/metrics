@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	localhst = "http://localhost:"
+	htts = "http://"
 )
 
 type gauge float64
@@ -49,7 +49,7 @@ var (
 )
 
 func parseFlags() {
-	flag.StringVar(&serverAddress, "a", "8080", "address and port to run server")
+	flag.StringVar(&serverAddress, "a", "localhost:8080", "address and port to run server")
 	flag.IntVar(&reportInterval, "r", 10, "The frequency of sending metrics to the server (default is 10 seconds)")
 	flag.IntVar(&pollInterval, "p", 2, "The polling frequency of metrics from the runtime package (default is 2 seconds)")
 	flag.Parse()
@@ -133,7 +133,7 @@ func sendMetrics() {
 						metricName := iter.Key().String()
 						metricValue := iter.Value()
 
-						url := fmt.Sprintf("%s%s/update/%s/%s/%v", localhst, serverAddress, t.Type().Field(i).Name, metricName, metricValue)
+						url := fmt.Sprintf("%s%s/update/%s/%s/%v", htts, serverAddress, t.Type().Field(i).Name, metricName, metricValue)
 						resp, err := http.Post(url, "text/plain", http.NoBody)
 						if err != nil {
 							fmt.Printf("Ошибка при отправке метрики: %s\n", err.Error())
