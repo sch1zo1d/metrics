@@ -21,14 +21,17 @@ func TestHandlerListMetrics(t *testing.T) {
 
 
 func TestHandlerReadMetric(t *testing.T) {
-	req, _ := http.NewRequest("GET", "/value/gauge/metric_name", nil)
-	w := httptest.NewRecorder()
+	reqP, _ := http.NewRequest("POST", "/update/counter/metric_name/10", nil)
+	reqG, _ := http.NewRequest("GET", "/value/gauge/metric_name", nil)
 	router := gin.Default()
+	w := httptest.NewRecorder()
+	router.POST("/update/:type/:name/:value", HandlerWriteMetric)
+	router.ServeHTTP(w, reqP)
 	router.GET("/value/:type/:name", HandlerReadMetric)
-	router.ServeHTTP(w, req)
+	router.ServeHTTP(w, reqG)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	assert.Equal(t, "0", w.Body.String())
+	assert.Equal(t, "", w.Body.String())
 }
 
 func TestHandlerWriteMetric(t *testing.T) {
