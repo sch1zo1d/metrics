@@ -19,11 +19,12 @@ func TestHandlerListMetrics(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 }
 
+
 func TestHandlerReadMetric(t *testing.T) {
-	req, _ := http.NewRequest("GET", "/update/gauge/metric_name", nil)
+	req, _ := http.NewRequest("GET", "/value/gauge/metric_name", nil)
 	w := httptest.NewRecorder()
 	router := gin.Default()
-	router.GET("/update/:type/:name", HandlerReadMetric)
+	router.GET("/value/:type/:name", HandlerReadMetric)
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
