@@ -1,4 +1,4 @@
-package main
+package server
 
 import (
 	"net/http"
@@ -48,7 +48,6 @@ func TestMainFunction(t *testing.T) {
 	go func() {
 		main()
 	}()
-
 	req, _ := http.NewRequest("GET", "/", nil)
 	w := httptest.NewRecorder()
 	router := gin.Default()
@@ -56,4 +55,5 @@ func TestMainFunction(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
+	// assert.Nil()
 }

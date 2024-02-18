@@ -1,4 +1,4 @@
-package main
+package agent
 
 import (
 	"flag"
@@ -12,7 +12,6 @@ import (
 	"sync"
 	"time"
 
-	// . "github.com/sch1zo1d/metrics/cmd/server"
 )
 
 const (
