@@ -1,4 +1,4 @@
-package server
+package main
 
 import (
 	"flag"
@@ -30,7 +30,10 @@ type Storage interface {
 	AddGaugeMetric(name string, value float64)
 	GetMetrics() (CounterMetric, GaugeMetric)
 }
-
+const (
+	CounterS = "counter"
+	GaugeS = "gauge"
+)
 var (
 
 	db Storage = &MemStorage{
@@ -124,10 +127,10 @@ func HandlerReadMetric (c *gin.Context) {
 	if name == "" {c.AbortWithStatus(http.StatusNotFound); return}
 	var ok bool
 	switch metricType{
-	case "gauge": 
+	case GaugeS: 
 		_, gaugeMetrics := db.GetMetrics()
 		value, ok = gaugeMetrics[name]
-	case "counter": 
+	case CounterS: 
 		counterMetrics, _ := db.GetMetrics()
 		value, ok = counterMetrics[name]
 	default: ok = false
@@ -143,11 +146,11 @@ func HandlerWriteMetric(c *gin.Context) {
 
 	if name == "" {c.AbortWithStatus(http.StatusNotFound); return}
 	switch metricType {
-	case "counter":
+	case CounterS:
 		if val, err := strconv.ParseInt(value, 10, 64); err == nil {
 			db.AddCounterMetric(name, val)
 		} else {badReq = 1}
-	case "gauge":
+	case GaugeS:
 		if val, err := strconv.ParseFloat(value, 64); err == nil {
 			db.AddGaugeMetric(name, val)
 		} else {badReq = 1}
@@ -158,12 +161,16 @@ func HandlerWriteMetric(c *gin.Context) {
 	c.Status(http.StatusOK)
 }
 
-func main() {
-	router := gin.Default()
-
+func initRouter() (router *gin.Engine) {
+	router = gin.Default()
 	router.POST("/update/:type/:name/:value", HandlerWriteMetric)
 	router.GET("/value/:type/:name", HandlerReadMetric)
 	router.GET("/", HandlerListMetrics)
+	return router
+}
+
+func main() {
+	router := initRouter()
 
 	parseFlags()
 	if err := router.Run(flagRunAddr); err != nil {panic(err)}

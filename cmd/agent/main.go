@@ -1,21 +1,21 @@
-package agent
+package main
 
 import (
 	"flag"
-	"fmt"
+	"log"
 	"math/rand"
 	"net/http"
 	"os"
+	"path"
 	"reflect"
 	"runtime"
 	"strconv"
 	"sync"
 	"time"
-
 )
 
 const (
-	htts = "http://"
+	localhst = "http://localhost:"
 )
 
 type gauge float64
@@ -48,7 +48,7 @@ var (
 )
 
 func parseFlags() {
-	flag.StringVar(&serverAddress, "a", "localhost:8080", "address and port to run server")
+	flag.StringVar(&serverAddress, "a", "8080", "address and port to run server")
 	flag.IntVar(&reportInterval, "r", 10, "The frequency of sending metrics to the server (default is 10 seconds)")
 	flag.IntVar(&pollInterval, "p", 2, "The polling frequency of metrics from the runtime package (default is 2 seconds)")
 	flag.Parse()
@@ -129,20 +129,24 @@ func sendMetrics() {
 				if field.Kind() == reflect.Map {
 					iter := field.MapRange()
 					for iter.Next() {
-						metricName := iter.Key().String()
-						metricValue := iter.Value()
-
-						url := fmt.Sprintf("%s%s/update/%s/%s/%v", htts, serverAddress, t.Type().Field(i).Name, metricName, metricValue)
+						url := path.Join(
+							localhst,
+							serverAddress,
+							"update",
+							t.Type().Field(i).Name,
+							iter.Key().String(),
+							iter.Value().String(),
+						)
 						resp, err := http.Post(url, "text/plain", http.NoBody)
 						if err != nil {
-							fmt.Printf("Ошибка при отправке метрики: %s\n", err.Error())
+							log.Printf("Ошибка при отправке метрики: %s\n", err.Error())
 							continue
 						}
 						defer resp.Body.Close()
 						if resp.StatusCode != http.StatusOK {
-							fmt.Printf("Ошибка при отправке метрики: %s\n", resp.Status)
+							log.Printf("Ошибка при отправке метрики: %s\n", resp.Status)
 						}
-						fmt.Println(resp)
+						log.Println(resp)
 					}
 				}
 			}
