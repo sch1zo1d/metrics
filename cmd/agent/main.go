@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"log"
 	"math/rand"
 	"net/http"
@@ -130,12 +131,11 @@ func sendMetrics() {
 					iter := field.MapRange()
 					for iter.Next() {
 						url := path.Join(
-							localhst,
-							serverAddress,
+							localhst+serverAddress,
 							"update",
 							t.Type().Field(i).Name,
 							iter.Key().String(),
-							iter.Value().String(),
+							fmt.Sprintf("%v", iter.Value()),
 						)
 						resp, err := http.Post(url, "text/plain", http.NoBody)
 						if err != nil {
