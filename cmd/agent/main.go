@@ -3,23 +3,26 @@ package main
 import (
 	"flag"
 	"fmt"
+	"log"
 	"math/rand"
 	"net/http"
+	"os"
 	"reflect"
 	"runtime"
+	"strconv"
 	"sync"
 	"time"
 )
 
 const (
-	localhst = "http://localhost:"
+	htp = "http://"
 )
 
 type gauge float64
 type counter int64
 
-type GaugeMetric map[string]gauge
-type CounterMetric map[string]counter
+type gaugeMetric map[string]gauge
+type counterMetric map[string]counter
 
 var (
 	randSrc     = rand.NewSource(time.Now().UnixNano())
@@ -33,11 +36,11 @@ var (
 	stopCh = make(chan struct{})
 
 	db = struct {
-		gauge   GaugeMetric
-		counter CounterMetric
+		gauge   gaugeMetric
+		counter counterMetric
 	}{
-		gauge:   make(GaugeMetric),
-		counter: make(CounterMetric),
+		gauge:   make(gaugeMetric),
+		counter: make(counterMetric),
 	}
 	pollInterval   int
 	reportInterval int
@@ -45,10 +48,21 @@ var (
 )
 
 func parseFlags() {
-	flag.StringVar(&serverAddress, "a", "8080", "address and port to run server")
+	flag.StringVar(&serverAddress, "a", "localhost:8080", "address and port to run server")
 	flag.IntVar(&reportInterval, "r", 10, "The frequency of sending metrics to the server (default is 10 seconds)")
 	flag.IntVar(&pollInterval, "p", 2, "The polling frequency of metrics from the runtime package (default is 2 seconds)")
 	flag.Parse()
+
+	if envRunAddr := os.Getenv("ADDRESS"); envRunAddr != "" {
+        serverAddress = envRunAddr
+    }
+	if envReportInterval := os.Getenv("REPORT_INTERVAL"); envReportInterval != "" {
+        reportInterval, _ = strconv.Atoi(envReportInterval)
+    }
+	if envPollInterval := os.Getenv("POLL_INTERVAL"); envPollInterval != "" {
+        pollInterval, _ = strconv.Atoi(envPollInterval)
+    }
+
 }
 
 func gatherMetrics() {
@@ -115,20 +129,18 @@ func sendMetrics() {
 				if field.Kind() == reflect.Map {
 					iter := field.MapRange()
 					for iter.Next() {
-						metricName := iter.Key().String()
-						metricValue := iter.Value()
 
-						url := fmt.Sprintf("%s%s/update/%s/%s/%v", localhst, serverAddress, t.Type().Field(i).Name, metricName, metricValue)
+						url := fmt.Sprintf("%s%s/update/%s/%s/%v", htp, serverAddress, t.Type().Field(i).Name, iter.Key().String(), iter.Value())
 						resp, err := http.Post(url, "text/plain", http.NoBody)
 						if err != nil {
-							fmt.Printf("Ошибка при отправке метрики: %s\n", err.Error())
+							log.Printf("Ошибка при отправке метрики: %s\n", err.Error())
 							continue
 						}
 						defer resp.Body.Close()
 						if resp.StatusCode != http.StatusOK {
-							fmt.Printf("Ошибка при отправке метрики: %s\n", resp.Status)
+							log.Printf("Ошибка при отправке метрики: %s\n", resp.Status)
 						}
-						fmt.Println(resp)
+						log.Println(resp)
 					}
 				}
 			}
