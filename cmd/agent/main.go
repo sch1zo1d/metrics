@@ -7,7 +7,6 @@ import (
 	"math/rand"
 	"net/http"
 	"os"
-	"path"
 	"reflect"
 	"runtime"
 	"strconv"
@@ -130,13 +129,15 @@ func sendMetrics() {
 				if field.Kind() == reflect.Map {
 					iter := field.MapRange()
 					for iter.Next() {
-						url := path.Join(
-							localhst+serverAddress,
-							"update",
-							t.Type().Field(i).Name,
-							iter.Key().String(),
-							fmt.Sprintf("%v", iter.Value()),
-						)
+						// url := path.Join(
+						// 	localhst+serverAddress,
+						// 	"update",
+						// 	t.Type().Field(i).Name,
+						// 	iter.Key().String(),
+						// 	fmt.Sprintf("%v", iter.Value()),
+						// )
+
+						url := fmt.Sprintf("%s%s/update/%s/%s/%v", localhst, serverAddress, t.Type().Field(i).Name, iter.Key().String(), iter.Value())
 						resp, err := http.Post(url, "text/plain", http.NoBody)
 						if err != nil {
 							log.Printf("Ошибка при отправке метрики: %s\n", err.Error())
