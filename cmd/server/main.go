@@ -3,12 +3,14 @@ package main
 import (
 	"flag"
 	"html/template"
+	"log"
 	"net/http"
 	"os"
 	"strconv"
 	"sync"
 
 	"github.com/gin-gonic/gin"
+	"github.com/sch1zo1d/metrics/internal/logger"
 )
 
 type MemStorage struct {
@@ -33,6 +35,7 @@ type Storage interface {
 const (
 	CounterS = "counter"
 	GaugeS = "gauge"
+	flagLogLevel = "info"
 )
 var (
 
@@ -162,7 +165,12 @@ func HandlerWriteMetric(c *gin.Context) {
 }
 
 func initRouter() (router *gin.Engine) {
-	router = gin.Default()
+	if err := logger.Initialize(flagLogLevel); err != nil {
+        log.Panic("Cant init router")
+    }
+	router = gin.New()
+    router.Use(logger.Logger(logger.Log))
+
 	router.POST("/update/:type/:name/:value", HandlerWriteMetric)
 	router.GET("/value/:type/:name", HandlerReadMetric)
 	router.GET("/", HandlerListMetrics)
