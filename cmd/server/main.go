@@ -1,15 +1,18 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"flag"
 	"html/template"
 	"log"
 	"net/http"
 	"os"
-	"strconv"
 	"sync"
 
 	"github.com/gin-gonic/gin"
+
+	. "github.com/sch1zo1d/metrics/internal/constant"
 	"github.com/sch1zo1d/metrics/internal/logger"
 )
 
@@ -21,24 +24,17 @@ type MemStorage struct {
 	mu sync.Mutex
 }
 
-type gauge float64
-type counter int64
-
-type GaugeMetric map[string]gauge
-type CounterMetric map[string]counter
-
 type Storage interface {
-	AddCounterMetric(name string, value int64)
-	AddGaugeMetric(name string, value float64)
+	AddCounterMetric(name string, value int64) Counter
+	AddGaugeMetric(name string, value float64) Gauge
 	GetMetrics() (CounterMetric, GaugeMetric)
 }
+
 const (
-	CounterS = "counter"
-	GaugeS = "gauge"
 	flagLogLevel = "info"
 )
-var (
 
+var (
 	db Storage = &MemStorage{
 		Data: struct {
 			gauge   GaugeMetric
@@ -51,25 +47,28 @@ var (
 )
 
 var flagRunAddr string
+
 func parseFlags() {
-    flag.StringVar(&flagRunAddr, "a", "localhost:8080", "address and port to run server")
-    flag.Parse()
+	flag.StringVar(&flagRunAddr, "a", "localhost:8080", "address and port to run server")
+	flag.Parse()
 
 	if envRunAddr := os.Getenv("ADDRESS"); envRunAddr != "" {
-        flagRunAddr = envRunAddr
-    }
-} 
-
-func (db *MemStorage) AddCounterMetric(name string, value int64) {
-	db.mu.Lock()
-	db.Data.counter[name] += counter(value)
-	db.mu.Unlock()
+		flagRunAddr = envRunAddr
+	}
 }
 
-func (db *MemStorage) AddGaugeMetric(name string, value float64) {
+func (db *MemStorage) AddCounterMetric(name string, value int64) Counter {
 	db.mu.Lock()
-	db.Data.gauge[name] = gauge(value)
+	db.Data.counter[name] += Counter(value)
 	db.mu.Unlock()
+	return db.Data.counter[name]
+}
+
+func (db *MemStorage) AddGaugeMetric(name string, value float64) Gauge {
+	db.mu.Lock()
+	db.Data.gauge[name] = Gauge(value)
+	db.mu.Unlock()
+	return db.Data.gauge[name]
 }
 
 func (db *MemStorage) GetMetrics() (CounterMetric, GaugeMetric) {
@@ -78,13 +77,30 @@ func (db *MemStorage) GetMetrics() (CounterMetric, GaugeMetric) {
 	return db.Data.counter, db.Data.gauge
 }
 
+func SerealizeJSON(c *gin.Context, metric *Metrics) {
+	var buf bytes.Buffer
+	if c.ContentType() != "application/json" {
+		c.AbortWithStatus(http.StatusBadRequest)
+		return
+	}
+	_, err := buf.ReadFrom(c.Request.Body)
+	if err != nil {
+		c.AbortWithError(http.StatusBadRequest, err)
+		return
+	}
+
+	if err = json.Unmarshal(buf.Bytes(), &metric); err != nil {
+		c.AbortWithError(http.StatusBadRequest, err)
+		return
+	}
+}
 
 func HandlerListMetrics(c *gin.Context) {
 	counterMetrics, gaugeMetrics := db.GetMetrics()
 
 	data := struct {
-		CounterMetrics map[string]counter
-		GaugeMetrics   map[string]gauge
+		CounterMetrics map[string]Counter
+		GaugeMetrics   map[string]Gauge
 	}{
 		CounterMetrics: counterMetrics,
 		GaugeMetrics:   gaugeMetrics,
@@ -123,56 +139,77 @@ func HandlerListMetrics(c *gin.Context) {
 		return
 	}
 }
-func HandlerReadMetric (c *gin.Context) {
-	name := c.Param("name")
-	metricType := c.Param("type")
-	var value interface{}
-	if name == "" {c.AbortWithStatus(http.StatusNotFound); return}
-	var ok bool
-	switch metricType{
-	case GaugeS: 
-		_, gaugeMetrics := db.GetMetrics()
-		value, ok = gaugeMetrics[name]
-	case CounterS: 
-		counterMetrics, _ := db.GetMetrics()
-		value, ok = counterMetrics[name]
-	default: ok = false
-	}
-	if !ok {c.AbortWithStatus(http.StatusNotFound); return}
-	c.String(http.StatusOK, "%v", value)
-}
-func HandlerWriteMetric(c *gin.Context) {
-	name := c.Param("name")
-	value := c.Param("value")
-	metricType := c.Param("type")
-	badReq := 0
 
-	if name == "" {c.AbortWithStatus(http.StatusNotFound); return}
+// value/
+func HandlerReadMetric(c *gin.Context) {
+	var metric Metrics
+	SerealizeJSON(c, &metric)
+
+	// что будет, если человек отправит метрику с двумя значениями?
+	// а если с заполненным одним, но другим типом?
+	// выведет то, что он отправил
+
+	name := metric.ID
+	metricType := metric.MType
+	var value interface{}
+	if name == "" {
+		c.AbortWithStatus(http.StatusNotFound)
+		return
+	}
+	var ok bool
 	switch metricType {
 	case CounterS:
-		if val, err := strconv.ParseInt(value, 10, 64); err == nil {
-			db.AddCounterMetric(name, val)
-		} else {badReq = 1}
+		counterMetrics, _ := db.GetMetrics()
+		value, ok = counterMetrics[name]
+		*metric.Delta = value.(int64)
 	case GaugeS:
-		if val, err := strconv.ParseFloat(value, 64); err == nil {
-			db.AddGaugeMetric(name, val)
-		} else {badReq = 1}
-	default: badReq = 1
+		_, gaugeMetrics := db.GetMetrics()
+		value, ok = gaugeMetrics[name]
+		*metric.Value = value.(float64)
+	default:
+		ok = false
 	}
-	if badReq == 1 {c.AbortWithStatus(http.StatusBadRequest); return}
+	if !ok {
+		c.AbortWithStatus(http.StatusNotFound)
+		return
+	}
+	c.JSON(http.StatusOK, metric)
+}
 
-	c.Status(http.StatusOK)
+// update/
+func HandlerWriteMetric(c *gin.Context) {
+	var metric Metrics
+
+	SerealizeJSON(c, &metric)
+
+	if metric.ID == "" {
+		c.AbortWithStatus(http.StatusNotFound)
+		return
+	}
+	log.Println(metric)
+	// что будет, если человек отправит метрику с пустым значением?
+	switch metric.MType {
+	case CounterS:
+		*metric.Delta = int64(db.AddCounterMetric(metric.ID, *metric.Delta))
+	case GaugeS:
+		*metric.Value = float64(db.AddGaugeMetric(metric.ID, *metric.Value))
+	default:
+		c.AbortWithStatus(http.StatusBadRequest)
+		return
+	}
+
+	c.JSON(http.StatusOK, metric)
 }
 
 func initRouter() (router *gin.Engine) {
 	if err := logger.Initialize(flagLogLevel); err != nil {
-        log.Panic("Cant init router")
-    }
+		log.Panic("Can't init router")
+	}
 	router = gin.New()
-    router.Use(logger.Logger(logger.Log))
+	router.Use(logger.Logger(logger.Log))
 
-	router.POST("/update/:type/:name/:value", HandlerWriteMetric)
-	router.GET("/value/:type/:name", HandlerReadMetric)
+	router.POST("/update/", HandlerWriteMetric)
+	router.GET("/value/", HandlerReadMetric)
 	router.GET("/", HandlerListMetrics)
 	return router
 }
@@ -181,6 +218,7 @@ func main() {
 	router := initRouter()
 
 	parseFlags()
-	if err := router.Run(flagRunAddr); err != nil {panic(err)}
+	if err := router.Run(flagRunAddr); err != nil {
+		panic(err)
+	}
 }
-

@@ -4,6 +4,8 @@ go 1.21.7
 
 replace github.com/sch1zo1d/metrics/internal/logger => ./internal/logger/
 
+replace github.com/sch1zo1d/metrics/internal/constant => ./internal/constant/
+
 require (
 	github.com/gin-gonic/gin v1.9.1
 	github.com/sch1zo1d/metrics/internal/logger v0.0.0-00010101000000-000000000000
@@ -28,6 +30,7 @@ require (
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/pelletier/go-toml/v2 v2.0.8 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
+	github.com/sch1zo1d/metrics/internal/constant v0.0.0-00010101000000-000000000000
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	github.com/ugorji/go/codec v1.2.11 // indirect
 	go.uber.org/multierr v1.10.0 // indirect
