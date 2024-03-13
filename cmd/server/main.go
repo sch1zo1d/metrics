@@ -360,7 +360,7 @@ func (db *MemStorage) SaveMetrics(fname string) error{
 
 
 func Saver(){
-	if RESTORE == "true" {db.LoadMetrics()}
+	if RESTORE == "true" {db.LoadMetrics(FILE_STORAGE_PATH)}
 	time.Sleep(time.Duration(STORE_INTERVAL * int(time.Second)))
 }
 func main() {
@@ -372,5 +372,5 @@ func main() {
 	if err := router.Run(flagRunAddr); err != nil {
 		panic(err)
 	}
-	db.SaveMetrics()
+	db.SaveMetrics(FILE_STORAGE_PATH)
 }
