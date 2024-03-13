@@ -31,8 +31,8 @@ type Storage interface {
 	AddCounterMetric(name string, value int64) Counter
 	AddGaugeMetric(name string, value float64) Gauge
 	GetMetrics() (CounterMetric, GaugeMetric)
-	LoadMetrics()
-	SaveMetrics()
+	LoadMetrics(string) error
+	SaveMetrics(string) error
 }
 
 const (
