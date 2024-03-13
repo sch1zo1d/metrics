@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	// "compress/gzip"
 	"encoding/json"
 	"flag"
 	"html/template"
@@ -10,12 +9,11 @@ import (
 	"net/http"
 	"os"
 	"strconv"
-	"strings"
 	"sync"
+	"time"
 
-	"github.com/gin-gonic/gin"
-	// "github.com/klauspost/compress/gzip"
 	"github.com/gin-contrib/gzip"
+	"github.com/gin-gonic/gin"
 
 	. "github.com/sch1zo1d/metrics/internal/constant"
 	"github.com/sch1zo1d/metrics/internal/logger"
@@ -33,6 +31,8 @@ type Storage interface {
 	AddCounterMetric(name string, value int64) Counter
 	AddGaugeMetric(name string, value float64) Gauge
 	GetMetrics() (CounterMetric, GaugeMetric)
+	LoadMetrics()
+	SaveMetrics()
 }
 
 const (
@@ -51,14 +51,31 @@ var (
 	}
 )
 
-var flagRunAddr string
+var (
+	STORE_INTERVAL    int
+	flagRunAddr       string
+	FILE_STORAGE_PATH string
+	RESTORE           string
+)
 
 func parseFlags() {
 	flag.StringVar(&flagRunAddr, "a", "localhost:8080", "address and port to run server")
+	flag.IntVar(&STORE_INTERVAL, "i", 300, "интервал времени в секундах, по истечении которого текущие показания сервера сохраняются на диск (по умолчанию 300 секунд, значение 0 делает запись синхронной)")
+	flag.StringVar(&FILE_STORAGE_PATH, "f", "/tmp/metrics-db.json", "полное имя файла, куда сохраняются текущие значения (по умолчанию /tmp/metrics-db.json, пустое значение отключает функцию записи на диск).")
+	flag.StringVar(&RESTORE, "r", "true", "булево значение (true/false), определяющее, загружать или нет ранее сохранённые значения из указанного файла при старте сервера (по умолчанию true).")
 	flag.Parse()
 
 	if envRunAddr := os.Getenv("ADDRESS"); envRunAddr != "" {
 		flagRunAddr = envRunAddr
+	}
+	if envSTORE_INTERVAL := os.Getenv("STORE_INTERVAL"); envSTORE_INTERVAL != "" {
+		STORE_INTERVAL, _ = strconv.Atoi(envSTORE_INTERVAL)
+	}
+	if envFILE_STORAGE_PATH := os.Getenv("ADDRESS"); envFILE_STORAGE_PATH != "" {
+		FILE_STORAGE_PATH = envFILE_STORAGE_PATH
+	}
+	if envRESTORE := os.Getenv("ADDRESS"); envRESTORE != "" {
+		RESTORE = envRESTORE
 	}
 }
 
@@ -274,6 +291,7 @@ func HandlerReadMetric(c *gin.Context) {
 	}
 	c.String(http.StatusOK, "%v", value)
 }
+
 // func ZipMiddleware() gin.HandlerFunc {
 // 	return func(c *gin.Context) {
 // 		// responseData := &responseData {
@@ -285,30 +303,29 @@ func HandlerReadMetric(c *gin.Context) {
 // 		//     responseData: responseData,
 // 		// }
 
-// 		if !strings.Contains(c.GetHeader("Content-Encoding"), "gzip") {
-// 			// если gzip не поддерживается, передаём управление
-// 			// дальше без изменений
-// 			c.Next()
-// 			return
-// 		}
-// 		gz, err := gzip.NewWriterLevel(c.Writer, gzip.BestSpeed)
-//         if err != nil {
-//             io.WriteString(c.Writer, err.Error())
-//             return
-//         }
-// 		defer gz.Close()
-// 		c.Header("Content-Encoding", "gzip")
-// 		c.Next()
-// 	}
-// }
+//			if !strings.Contains(c.GetHeader("Content-Encoding"), "gzip") {
+//				// если gzip не поддерживается, передаём управление
+//				// дальше без изменений
+//				c.Next()
+//				return
+//			}
+//			gz, err := gzip.NewWriterLevel(c.Writer, gzip.BestSpeed)
+//	        if err != nil {
+//	            io.WriteString(c.Writer, err.Error())
+//	            return
+//	        }
+//			defer gz.Close()
+//			c.Header("Content-Encoding", "gzip")
+//			c.Next()
+//		}
+//	}
 func initRouter() (router *gin.Engine) {
 	if err := logger.Initialize(flagLogLevel); err != nil {
 		log.Panic("Can't init router")
 	}
 	router = gin.New()
 
-	router.Use(logger.Logger(logger.Log))
-	router.Use(gzip.Gzip(gzip.DefaultCompression, gzip.BestSpeed, gzip.ContentType("application/json", "text/html")))
+	router.Use(logger.Logger(logger.Log), gzip.Gzip(gzip.DefaultCompression))
 
 	router.POST("/update/:type/:name/:value", HandlerWriteMetric)
 	router.GET("/value/:type/:name", HandlerReadMetric)
@@ -318,11 +335,42 @@ func initRouter() (router *gin.Engine) {
 	return router
 }
 
+func (db *MemStorage) LoadMetrics(fname string) error{
+	dbfile, err := os.ReadFile(fname)
+	if err != nil {
+		log.Println("Ошибка с чтением данных из файла")
+		return err
+	}
+	if err := json.Unmarshal(dbfile, db); err != nil {
+		log.Println("Ошибка с десериализацией данных в json")
+		return err
+	}
+	return nil
+}
+
+func (db *MemStorage) SaveMetrics(fname string) error{
+	log.Println("Сохранение метрик")
+	data, err := json.MarshalIndent(db, "", "   ")
+    if err != nil {
+        log.Println("Ошибка с сериализацией данных в json")
+		return err
+    }
+    return os.WriteFile(fname, data, 0666)
+}
+
+
+func Saver(){
+	if RESTORE == "true" {db.LoadMetrics()}
+	time.Sleep(time.Duration(STORE_INTERVAL * int(time.Second)))
+}
 func main() {
 	router := initRouter()
 
 	parseFlags()
+
+	go Saver()
 	if err := router.Run(flagRunAddr); err != nil {
 		panic(err)
 	}
+	db.SaveMetrics()
 }
