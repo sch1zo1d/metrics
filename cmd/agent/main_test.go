@@ -1,14 +1,17 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
+	"log"
 	"net/http"
 	"net/http/httptest"
-	"strconv"
 	"sync"
 	"testing"
 	"text/template"
-	
+
 	"github.com/gin-gonic/gin"
+	. "github.com/sch1zo1d/metrics/internal/constant"
 	"github.com/stretchr/testify/assert"
 )
 func TestHandlerListMetrics(t *testing.T) {
@@ -22,24 +25,25 @@ func TestHandlerListMetrics(t *testing.T) {
 }
 
 func TestHandlerReadMetric(t *testing.T) {
-	req, _ := http.NewRequest("GET", "/update/gauge/metric_name", nil)
+	req, _ := http.NewRequest("GET", "/value/", bytes.NewBuffer([]byte(`{"ID": "Sys", "MType": "gauge"}`)))
 	w := httptest.NewRecorder()
 	router := gin.Default()
-	router.GET("/update/:type/:name", HandlerReadMetric)
+	router.GET("/value/", HandlerReadMetric)
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	assert.Equal(t, "0", w.Body.String())
+	assert.Equal(t, []byte(`{"ID": Sys, "MType": "gauge", "Value":0}`), w.Body.Bytes())
 }
 
 func TestHandlerWriteMetric(t *testing.T) {
-	req, _ := http.NewRequest("POST", "/update/counter/metric_name/10", nil)
+	req, _ := http.NewRequest("POST", "/update/", bytes.NewBuffer([]byte(`{"ID": "mymetric", "MType": "gauge", "Value":123.456}`)))
 	w := httptest.NewRecorder()
 	router := gin.Default()
-	router.POST("/update/:type/:name/:value", HandlerWriteMetric)
+	router.POST("/update/", HandlerWriteMetric)
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, []byte(`{"ID": "mymetric", "MType": "gauge", "Value":123.456}`), w.Body.Bytes())
 }
 type MemStorage struct {
 	Data struct {
@@ -49,15 +53,12 @@ type MemStorage struct {
 	mu sync.Mutex
 }
 
-// type gauge float64
-// type counter int64
 
-type GaugeMetric map[string]gauge
-type CounterMetric map[string]counter
+
 
 type Storage interface {
-	AddCounterMetric(name string, value int64)
-	AddGaugeMetric(name string, value float64)
+	AddCounterMetric(name string, value int64)Counter
+	AddGaugeMetric(name string, value float64)Gauge
 	GetMetrics() (CounterMetric, GaugeMetric)
 }
 
@@ -74,18 +75,20 @@ var (
 	}
 )
 
-func (database *MemStorage) AddCounterMetric(name string, value int64) {
-	database.mu.Lock()
-	database.Data.counter[name] += counter(value)
-	database.mu.Unlock()
+
+func (db *MemStorage) AddCounterMetric(name string, value int64) Counter {
+	db.mu.Lock()
+	db.Data.counter[name] += Counter(value)
+	db.mu.Unlock()
+	return db.Data.counter[name]
 }
 
-func (database *MemStorage) AddGaugeMetric(name string, value float64) {
-	database.mu.Lock()
-	database.Data.gauge[name] = gauge(value)
-	database.mu.Unlock()
+func (db *MemStorage) AddGaugeMetric(name string, value float64) Gauge {
+	db.mu.Lock()
+	db.Data.gauge[name] = Gauge(value)
+	db.mu.Unlock()
+	return db.Data.gauge[name]
 }
-
 func (database *MemStorage) GetMetrics() (CounterMetric, GaugeMetric) {
 	database.mu.Lock()
 	defer database.mu.Unlock()
@@ -97,8 +100,8 @@ func HandlerListMetrics(c *gin.Context) {
 	counterMetrics, gaugeMetrics := database.GetMetrics()
 
 	data := struct {
-		CounterMetrics map[string]counter
-		GaugeMetrics   map[string]gauge
+		CounterMetrics map[string]Counter
+		GaugeMetrics   map[string]Gauge
 	}{
 		CounterMetrics: counterMetrics,
 		GaugeMetrics:   gaugeMetrics,
@@ -137,41 +140,80 @@ func HandlerListMetrics(c *gin.Context) {
 		return
 	}
 }
-func HandlerReadMetric (c *gin.Context) {
-	name := c.Param("name")
-	metricType := c.Param("type")
+// value/
+func HandlerReadMetric(c *gin.Context) {
+	var metric Metrics
+	SerealizeJSON(c, &metric)
+
+	// что будет, если человек отправит метрику с двумя значениями?
+	// а если с заполненным одним, но другим типом?
+	// выведет то, что он отправил
+
+	name := metric.ID
+	metricType := metric.MType
 	var value interface{}
-	if name == "" {c.AbortWithStatus(http.StatusNotFound); return}
-	switch metricType{
-	case "gauge": 
-		_, gaugeMetrics := database.GetMetrics()
-		value = gaugeMetrics[name]
-	case "counter": 
-		counterMetrics, _ := database.GetMetrics()
-		value = counterMetrics[name]
-	default: c.AbortWithStatus(http.StatusNotFound); return
+	if name == "" {
+		c.AbortWithStatus(http.StatusNotFound)
+		return
 	}
-	c.String(http.StatusOK, "%v", value)
-}
-func HandlerWriteMetric(c *gin.Context) {
-	name := c.Param("name")
-	value := c.Param("value")
-	metricType := c.Param("type")
-	badReq := 0
-
-	if name == "" {c.AbortWithStatus(http.StatusNotFound); return}
+	var ok bool
 	switch metricType {
-	case "counter":
-		if val, err := strconv.ParseInt(value, 10, 64); err == nil {
-			database.AddCounterMetric(name, val)
-		} else {badReq = 1}
-	case "gauge":
-		if val, err := strconv.ParseFloat(value, 64); err == nil {
-			database.AddGaugeMetric(name, val)
-		} else {badReq = 1}
-	default: badReq = 1
+	case CounterS:
+		counterMetrics, _ := database.GetMetrics()
+		value, ok = counterMetrics[name]
+		*metric.Delta = value.(int64)
+	case GaugeS:
+		_, gaugeMetrics := database.GetMetrics()
+		value, ok = gaugeMetrics[name]
+		*metric.Value = value.(float64)
+	default:
+		ok = false
 	}
-	if badReq == 1 {c.AbortWithStatus(http.StatusBadRequest); return}
+	if !ok {
+		c.AbortWithStatus(http.StatusNotFound)
+		return
+	}
+	c.JSON(http.StatusOK, metric)
+}
 
-	c.Status(http.StatusOK)
+// update/
+func HandlerWriteMetric(c *gin.Context) {
+	var metric Metrics
+
+	SerealizeJSON(c, &metric)
+
+	if metric.ID == "" {
+		c.AbortWithStatus(http.StatusNotFound)
+		return
+	}
+	log.Println(metric)
+	// что будет, если человек отправит метрику с пустым значением?
+	switch metric.MType {
+	case CounterS:
+		*metric.Delta = int64(database.AddCounterMetric(metric.ID, *metric.Delta))
+	case GaugeS:
+		*metric.Value = float64(database.AddGaugeMetric(metric.ID, *metric.Value))
+	default:
+		c.AbortWithStatus(http.StatusBadRequest)
+		return
+	}
+
+	c.JSON(http.StatusOK, metric)
+}
+func SerealizeJSON(c *gin.Context, metric *Metrics) {
+	var buf bytes.Buffer
+	if c.ContentType() != "application/json" {
+		c.AbortWithStatus(http.StatusBadRequest)
+		return
+	}
+	_, err := buf.ReadFrom(c.Request.Body)
+	if err != nil {
+		c.AbortWithError(http.StatusBadRequest, err)
+		return
+	}
+
+	if err = json.Unmarshal(buf.Bytes(), &metric); err != nil {
+		c.AbortWithError(http.StatusBadRequest, err)
+		return
+	}
 }
