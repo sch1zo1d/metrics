@@ -2,15 +2,20 @@ package main
 
 import (
 	"bytes"
+	// "compress/gzip"
 	"encoding/json"
 	"flag"
 	"html/template"
 	"log"
 	"net/http"
 	"os"
+	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/gin-gonic/gin"
+	// "github.com/klauspost/compress/gzip"
+	"github.com/gin-contrib/gzip"
 
 	. "github.com/sch1zo1d/metrics/internal/constant"
 	"github.com/sch1zo1d/metrics/internal/logger"
@@ -141,7 +146,7 @@ func HandlerListMetrics(c *gin.Context) {
 }
 
 // value/
-func HandlerReadMetric(c *gin.Context) {
+func HandlerReadJSONMetric(c *gin.Context) {
 	var metric Metrics
 	SerealizeJSON(c, &metric)
 
@@ -177,7 +182,7 @@ func HandlerReadMetric(c *gin.Context) {
 }
 
 // update/
-func HandlerWriteMetric(c *gin.Context) {
+func HandlerWriteJSONMetric(c *gin.Context) {
 	var metric Metrics
 
 	SerealizeJSON(c, &metric)
@@ -197,19 +202,118 @@ func HandlerWriteMetric(c *gin.Context) {
 		c.AbortWithStatus(http.StatusBadRequest)
 		return
 	}
+	// if strings.Contains(c.GetHeader("Accept-Encoding"), "gzip") {
+	// 	c.Header("Content-Encoding", "gzip")
+	// 	gz, err := gzip.NewWriterLevel(c.Writer, gzip.BestSpeed)
+	// 	if err := json.NewEncoder(gz).Encode(metric); err != nil {
+	// 		log.Printf("Ошибка при сериализации метрики: %s\n", err.Error())
+	// 		return
+	// 	}
 
+	// 	c.Data(http.StatusOK, "application/json", metric)
+	// 	gz.Close()
+	// 	return
+	// }
 	c.JSON(http.StatusOK, metric)
 }
+func HandlerWriteMetric(c *gin.Context) {
+	name := c.Param("name")
+	value := c.Param("value")
+	metricType := c.Param("type")
+	badReq := 0
 
+	if name == "" {
+		c.AbortWithStatus(http.StatusNotFound)
+		return
+	}
+	switch metricType {
+	case CounterS:
+		if val, err := strconv.ParseInt(value, 10, 64); err == nil {
+			db.AddCounterMetric(name, val)
+		} else {
+			badReq = 1
+		}
+	case GaugeS:
+		if val, err := strconv.ParseFloat(value, 64); err == nil {
+			db.AddGaugeMetric(name, val)
+		} else {
+			badReq = 1
+		}
+	default:
+		badReq = 1
+	}
+	if badReq == 1 {
+		c.AbortWithStatus(http.StatusBadRequest)
+		return
+	}
+
+	c.Status(http.StatusOK)
+}
+func HandlerReadMetric(c *gin.Context) {
+	name := c.Param("name")
+	metricType := c.Param("type")
+	var value interface{}
+	if name == "" {
+		c.AbortWithStatus(http.StatusNotFound)
+		return
+	}
+	var ok bool
+	switch metricType {
+	case GaugeS:
+		_, gaugeMetrics := db.GetMetrics()
+		value, ok = gaugeMetrics[name]
+	case CounterS:
+		counterMetrics, _ := db.GetMetrics()
+		value, ok = counterMetrics[name]
+	default:
+		ok = false
+	}
+	if !ok {
+		c.AbortWithStatus(http.StatusNotFound)
+		return
+	}
+	c.String(http.StatusOK, "%v", value)
+}
+// func ZipMiddleware() gin.HandlerFunc {
+// 	return func(c *gin.Context) {
+// 		// responseData := &responseData {
+// 		//     status: 0,
+// 		//     size: 0,
+// 		// }
+// 		// lw := loggingResponseWriter {
+// 		//     ResponseWriter: w, // встраиваем оригинальный http.ResponseWriter
+// 		//     responseData: responseData,
+// 		// }
+
+// 		if !strings.Contains(c.GetHeader("Content-Encoding"), "gzip") {
+// 			// если gzip не поддерживается, передаём управление
+// 			// дальше без изменений
+// 			c.Next()
+// 			return
+// 		}
+// 		gz, err := gzip.NewWriterLevel(c.Writer, gzip.BestSpeed)
+//         if err != nil {
+//             io.WriteString(c.Writer, err.Error())
+//             return
+//         }
+// 		defer gz.Close()
+// 		c.Header("Content-Encoding", "gzip")
+// 		c.Next()
+// 	}
+// }
 func initRouter() (router *gin.Engine) {
 	if err := logger.Initialize(flagLogLevel); err != nil {
 		log.Panic("Can't init router")
 	}
 	router = gin.New()
-	router.Use(logger.Logger(logger.Log))
 
-	router.POST("/update/", HandlerWriteMetric)
-	router.GET("/value/", HandlerReadMetric)
+	router.Use(logger.Logger(logger.Log))
+	router.Use(gzip.Gzip(gzip.DefaultCompression, gzip.BestSpeed, gzip.ContentType("application/json", "text/html")))
+
+	router.POST("/update/:type/:name/:value", HandlerWriteMetric)
+	router.GET("/value/:type/:name", HandlerReadMetric)
+	router.POST("/update/", HandlerWriteJSONMetric)
+	router.GET("/value/", HandlerReadJSONMetric)
 	router.GET("/", HandlerListMetrics)
 	return router
 }

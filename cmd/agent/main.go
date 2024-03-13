@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"compress/gzip"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -138,17 +139,23 @@ func sendMetrics() {
 							*metric.Value = iter.Value().Float()
 						}
 						// log.Println(metric, *metric.Value, *metric.Delta)
+						// gzip.
 						js, err := json.Marshal(metric)
 						if err != nil {
 							log.Printf("Ошибка при сериализации метрики: %s\n", err.Error())
 							continue
 						}
+						var buf bytes.Buffer
+						gz := gzip.NewWriter(&buf)
+						gz.Write(js)
+						gz.Close()
 						url := fmt.Sprintf("%s%s/update/", htp, serverAddress)
-						resp, err := http.Post(url, "application/json", bytes.NewReader(js))
+						resp, err := http.Post(url, "application/json", &buf)
 						if err != nil {
 							log.Printf("Ошибка при отправке метрики: %s\n", err.Error())
 							continue
 						}
+						resp.Header.Set("Content-Encoding", "gzip")
 						defer resp.Body.Close()
 						if resp.StatusCode != http.StatusOK {
 							log.Printf("Ошибка при отправке метрики: %s\n", resp.Status)
